@@ -18,6 +18,7 @@ pm.softdepend.found=The soft depend &6%1 &ais installed and will be used.
 
 # Updater
 pm.updater.found=A new update of &6PluginManager &ais available &e(%1 -> %2)&a.
+pm.updater.newMajor=&c------------------------------\nA new &lmajor update &aof &6PluginManager &ais available &e(%1 -> %2)&a.\nCheck the Github/SpigotMC page for more information about this new Version.\n&c------------------------------
 pm.updater.downloadSuccess=Successfully downloaded new &6PluginManager &aversion.
 pm.updater.checkChangelog=You should check out the changelog here &6%1&a.
 pm.updater.selfReload=PluginManager is reloading itself in some seconds...
@@ -36,6 +37,7 @@ pm.installedPlugins.notFound=&cThe plugin &6%1 &chas been removed from the confi
 pm.pluginutils.loadPlugin.fileNotFound=Plugin file not found
 pm.pluginutils.loadPlugin.missingDependency=Missing Dependency
 pm.pluginutils.loadPlugin.invalidPluginFile=Invalid plugin file
+pm.pluginutils.loadPlugin.invalidPluginDescription=Invalid plugin description
 pm.pluginutils.loadPlugin.notAdded=Unable to add to plugin list
 # unloadPlugin method
 pm.pluginutils.unloadPlugin.pluginListError=Unable to get plugins list

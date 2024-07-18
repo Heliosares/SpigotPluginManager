@@ -10,13 +10,23 @@ import org.bukkit.plugin.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URLClassLoader;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public class PluginUtils {
+
+    public static final String PAPER_ENTRYPOINT_HANDLER = "io.papermc.paper.plugin.entrypoint.EntrypointHandler";
+    public static final String PAPER_LAUNCH_ENTRYPOINT_HANDLER = "io.papermc.paper.plugin.entrypoint.LaunchEntryPointHandler";
+    public static final String PAPER_SUPPORT = "net.lenni0451.spm.utils.PaperSupport";
+    public static final String PAPER_PLUGIN_PROVIDER_STORAGE = "net.lenni0451.spm.storage.SingularRuntimePluginProviderStorage";
+
 
     /**
      * Get the {@code plugins} directory
@@ -46,12 +56,23 @@ public class PluginUtils {
     }
 
     /**
-     * Get the {@link PluginLoader} instance of the server
+     * Get the {@link PluginDescriptionFile} of a plugin jar
      *
-     * @return The {@link PluginLoader} instance
+     * @param file The plugin jar
+     * @return The {@link PluginDescriptionFile}
+     * @throws InvalidDescriptionException If the plugin.yml is invalid
      */
-    public PluginLoader getPluginLoader() {
-        return net.lenni0451.spm.PluginManager.getInstance().getPluginLoader();
+    public PluginDescriptionFile getPluginDescription(final File file) throws InvalidDescriptionException {
+        try (JarFile jar = new JarFile(file)) {
+            JarEntry entry = jar.getJarEntry("plugin.yml");
+            if (entry == null) throw new InvalidDescriptionException(new FileNotFoundException("Jar does not contain plugin.yml"));
+
+            try (InputStream is = jar.getInputStream(entry)) {
+                return new PluginDescriptionFile(is);
+            }
+        } catch (Throwable t) {
+            throw new InvalidDescriptionException(t);
+        }
     }
 
     /**
@@ -216,7 +237,7 @@ public class PluginUtils {
                     .filter(file -> file.getName().toLowerCase().endsWith(".jar") || (!file.getName().toLowerCase().endsWith(".jar") && !net.lenni0451.spm.PluginManager.getInstance().getConfig().getBoolean("IgnoreNonJarPlugins")))
                     .filter(file -> {
                         try {
-                            PluginDescriptionFile desc = this.getPluginLoader().getPluginDescription(file);
+                            PluginDescriptionFile desc = this.getPluginDescription(file);
                             return desc.getName().equalsIgnoreCase(name);
                         } catch (InvalidDescriptionException ignored) {
                             //Here we do not need to care about invalid plugin ymls
@@ -225,18 +246,27 @@ public class PluginUtils {
                     }).findAny().ifPresent(targetFile::set);
         }
         if (targetFile.get() == null) {
-//            throw new IllegalStateException("Plugin file not found");
             throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.fileNotFound"));
         }
         this.updatePlugin(targetFile.get());
 
         try {
-            targetPlugin = this.getPluginLoader().loadPlugin(targetFile.get());
+            try {
+                Class.forName(PAPER_ENTRYPOINT_HANDLER);
+                Class<?> PaperSupport = Class.forName(PAPER_SUPPORT);
+                targetPlugin = (Plugin) PaperSupport.getDeclaredMethod("loadPlugin", File.class).invoke(null, targetFile.get());
+            } catch (ClassNotFoundException | IllegalStateException e) {
+                targetPlugin = this.getPluginManager().loadPlugin(targetFile.get());
+            }
         } catch (UnknownDependencyException e) {
-//            throw new IllegalStateException("Missing Dependency");
             throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.missingDependency"));
         } catch (InvalidPluginException e) {
-//            throw new IllegalStateException("Invalid plugin file");
+            throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.invalidPluginFile"));
+        } catch (InvalidDescriptionException e) {
+            throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.invalidPluginDescription"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            //Only for paper support
             throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.invalidPluginFile"));
         }
 
@@ -249,8 +279,13 @@ public class PluginUtils {
             if (!plugins.contains(targetPlugin)) plugins.add(targetPlugin);
         } catch (Throwable e) {
             e.printStackTrace(); //We maybe even want to see why the plugin could not be added
-//            throw new IllegalStateException("Unable to add to plugin list");
             throw new IllegalStateException(I18n.t("pm.pluginutils.loadPlugin.notAdded"));
+        }
+        try { //Synchronize the commands between client/server on newer versions
+            Method syncCommands = Bukkit.getServer().getClass().getDeclaredMethod("syncCommands");
+            syncCommands.setAccessible(true);
+            syncCommands.invoke(Bukkit.getServer());
+        } catch (Throwable ignored) {
         }
         return targetPlugin;
     }
@@ -278,39 +313,45 @@ public class PluginUtils {
     public void unloadPlugin(final Plugin plugin) {
         this.disablePlugin(plugin);
 
-        PluginManager pluginManager = this.getPluginManager();
-
         List<Plugin> plugins;
         Map<String, Plugin> lookupNames;
         SimpleCommandMap commandMap;
         Map<String, Command> knownCommands;
         Map<Event, SortedSet<RegisteredListener>> listeners;
 
+        Object pluginContainer = this.getPluginManager();
+        try {
+            Field paperPluginManager = Bukkit.getServer().getClass().getDeclaredField("paperPluginManager");
+            paperPluginManager.setAccessible(true);
+            pluginContainer = paperPluginManager.get(Bukkit.getServer());
+
+            Field instanceManager = pluginContainer.getClass().getDeclaredField("instanceManager");
+            instanceManager.setAccessible(true);
+            pluginContainer = instanceManager.get(pluginContainer);
+        } catch (Throwable ignored) {
+        }
         try { //Get plugins list
-            Field f = pluginManager.getClass().getDeclaredField("plugins");
+            Field f = pluginContainer.getClass().getDeclaredField("plugins");
             f.setAccessible(true);
-            plugins = (List<Plugin>) f.get(pluginManager);
+            plugins = (List<Plugin>) f.get(pluginContainer);
         } catch (Throwable e) {
             e.printStackTrace();
-//            throw new IllegalStateException("Unable to get plugins list");
             throw new IllegalStateException(I18n.t("pm.pluginutils.unloadPlugin.pluginListError"));
         }
         try { //Get lookup names
-            Field f = pluginManager.getClass().getDeclaredField("lookupNames");
+            Field f = pluginContainer.getClass().getDeclaredField("lookupNames");
             f.setAccessible(true);
-            lookupNames = (Map<String, Plugin>) f.get(pluginManager);
+            lookupNames = (Map<String, Plugin>) f.get(pluginContainer);
         } catch (Throwable e) {
             e.printStackTrace();
-//            throw new IllegalStateException("Unable to get lookup names");
             throw new IllegalStateException(I18n.t("pm.pluginutils.unloadPlugin.lookupNamesError"));
         }
         try { //Get command map
-            Field f = pluginManager.getClass().getDeclaredField("commandMap");
+            Field f = pluginContainer.getClass().getDeclaredField("commandMap");
             f.setAccessible(true);
-            commandMap = (SimpleCommandMap) f.get(pluginManager);
+            commandMap = (SimpleCommandMap) f.get(pluginContainer);
         } catch (Throwable e) {
             e.printStackTrace();
-//            throw new IllegalStateException("Unable to get command map");
             throw new IllegalStateException(I18n.t("pm.pluginutils.unloadPlugin.commandMapError"));
         }
         try { //Get known commands
@@ -319,19 +360,19 @@ public class PluginUtils {
             knownCommands = (Map<String, Command>) f.get(commandMap);
         } catch (Throwable e) {
             e.printStackTrace();
-//            throw new IllegalStateException("Unable to get known commands");
             throw new IllegalStateException(I18n.t("pm.pluginutils.unloadPlugin.knownCommandsError"));
         }
         try {
-            Field f = pluginManager.getClass().getDeclaredField("listeners");
+            Field f = pluginContainer.getClass().getDeclaredField("listeners");
             f.setAccessible(true);
-            listeners = (Map<Event, SortedSet<RegisteredListener>>) f.get(pluginManager);
+            listeners = (Map<Event, SortedSet<RegisteredListener>>) f.get(pluginContainer);
         } catch (Throwable e) {
             listeners = null;
         }
 
         plugins.remove(plugin);
         lookupNames.remove(plugin.getName());
+        lookupNames.remove(plugin.getName().toLowerCase());
         { //Remove plugin commands
             Iterator<Map.Entry<String, Command>> iterator = knownCommands.entrySet().iterator();
             while (iterator.hasNext()) {
@@ -347,6 +388,22 @@ public class PluginUtils {
                 registeredListeners.removeIf(registeredListener -> registeredListener.getPlugin().equals(plugin));
             }
         }
+        try {
+            Class<?> entryPointHandler = Class.forName(PAPER_LAUNCH_ENTRYPOINT_HANDLER);
+            Object instance = entryPointHandler.getDeclaredField("INSTANCE").get(null);
+            Map<?, ?> storage = (Map<?, ?>) instance.getClass().getMethod("getStorage").invoke(instance);
+            for (Object providerStorage : storage.values()) {
+                Iterable<?> providers = (Iterable<?>) providerStorage.getClass().getMethod("getRegisteredProviders").invoke(providerStorage);
+                Iterator<?> it = providers.iterator();
+                while (it.hasNext()) {
+                    Object provider = it.next();
+                    Object meta = provider.getClass().getMethod("getMeta").invoke(provider);
+                    String metaName = (String) meta.getClass().getMethod("getName").invoke(meta);
+                    if (metaName.equals(plugin.getName())) it.remove();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
 
         if (plugin.getClass().getClassLoader() instanceof URLClassLoader) {
             URLClassLoader classLoader = (URLClassLoader) plugin.getClass().getClassLoader();
@@ -354,15 +411,18 @@ public class PluginUtils {
             try {
                 classLoader.close();
             } catch (Throwable t) {
-//                throw new IllegalStateException("Unable to close the class loader");
                 throw new IllegalStateException(I18n.t("pm.pluginutils.unloadPlugin.closeClassLoaderError"));
             }
         } else {
-//            Logger.sendConsole("§cIt seems like spigot no longer uses URLClassLoader.");
-//            Logger.sendConsole("§cPlease report this to the plugin dev!");
             for (String s : I18n.mt("pm.pluginutils.unloadPlugin.unknownClassLoader")) Logger.sendConsole(s);
         }
 
+        try { //Synchronize the commands between client/server on newer versions
+            Method syncCommands = Bukkit.getServer().getClass().getDeclaredMethod("syncCommands");
+            syncCommands.setAccessible(true);
+            syncCommands.invoke(Bukkit.getServer());
+        } catch (Throwable ignored) {
+        }
         System.gc(); //Hopefully remove all leftover plugin classes and references
     }
 
@@ -489,7 +549,7 @@ public class PluginUtils {
                     }
 
                     try {
-                        PluginDescriptionFile desc = this.getPluginLoader().getPluginDescription(pluginFile);
+                        PluginDescriptionFile desc = this.getPluginDescription(pluginFile);
                         if (desc.getName().equalsIgnoreCase(plugin.getName())) return Optional.of(pluginFile);
                     } catch (Throwable ignored) {
                     }

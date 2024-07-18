@@ -27,7 +27,7 @@ public class Load_Sub implements ISubCommand {
                         continue;
                     }
                     try {
-                        PluginDescriptionFile desc = PluginManager.getInstance().getPluginLoader().getPluginDescription(pluginFile);
+                        PluginDescriptionFile desc = PluginManager.getInstance().getPluginUtils().getPluginDescription(pluginFile);
                         String name = desc.getName();
                         if (!PluginManager.getInstance().getPluginUtils().getPlugin(name).isPresent()) {
                             names.add(desc.getName());
@@ -41,6 +41,7 @@ public class Load_Sub implements ISubCommand {
                 try {
                     PluginManager.getInstance().getPluginUtils().loadPlugin(name);
                 } catch (Throwable e) {
+                    e.printStackTrace();
                     Logger.sendPrefixMessage(sender, I18n.t("pm.subcommands.load.loadError", name, e.getMessage() == null ? I18n.t("pm.general.checkConsole") : e.getMessage()));
                 }
             }
@@ -54,6 +55,7 @@ public class Load_Sub implements ISubCommand {
                 PluginManager.getInstance().getPluginUtils().loadPlugin(args[0]);
                 Logger.sendPrefixMessage(sender, I18n.t("pm.subcommands.load.success"));
             } catch (Throwable e) {
+                e.printStackTrace();
                 Logger.sendPrefixMessage(sender, I18n.t("pm.subcommands.load.loadError", args[0], e.getMessage() == null ? I18n.t("pm.general.checkConsole") : e.getMessage()));
             }
         }

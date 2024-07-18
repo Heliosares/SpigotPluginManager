@@ -85,9 +85,10 @@ public class Download_Sub implements ISubCommandMultithreaded {
                 if (success) {
                     Logger.sendPrefixMessage(sender, I18n.t("pm.subcommands.download.success", file.getName()));
                     try {
-                        PluginDescriptionFile desc = PluginManager.getInstance().getPluginLoader().getPluginDescription(file);
+                        PluginDescriptionFile desc = PluginManager.getInstance().getPluginUtils().getPluginDescription(file);
                         PluginManager.getInstance().getInstalledPlugins().setPlugin(desc.getName(), id, response.get("version").getAsJsonObject().get("id").getAsString(), file.getName());
                     } catch (Throwable e) {
+                        e.printStackTrace();
                         Logger.sendPrefixMessage(sender, I18n.t("pm.subcommands.download.updateConfigError"));
                     }
                 } else {
