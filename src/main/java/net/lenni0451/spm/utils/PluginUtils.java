@@ -374,14 +374,14 @@ public class PluginUtils {
         lookupNames.remove(plugin.getName());
         lookupNames.remove(plugin.getName().toLowerCase());
         { //Remove plugin commands
-            Iterator<Map.Entry<String, Command>> iterator = knownCommands.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<String, Command> entry = iterator.next();
+            Set<String> remove = new HashSet<>();
+            for (Map.Entry<String, Command> entry : knownCommands.entrySet()) {
                 if (entry.getValue() instanceof PluginCommand) {
                     PluginCommand command = (PluginCommand) entry.getValue();
-                    if (command.getPlugin().equals(plugin)) iterator.remove();
+                    if (command.getPlugin().equals(plugin)) remove.add(entry.getKey());
                 }
             }
+            remove.forEach(knownCommands::remove);
         }
         if (listeners != null) {
             for (Set<RegisteredListener> registeredListeners : listeners.values()) {
